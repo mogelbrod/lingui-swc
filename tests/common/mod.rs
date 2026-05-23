@@ -23,7 +23,7 @@ impl Write for SharedWriter {
 
 pub fn transform<P: Pass>(
     input: &str,
-    transform_cb: impl FnOnce(&SingleThreadedComments) -> P,
+    transform_cb: impl FnOnce(&SingleThreadedComments, Lrc<SourceMap>) -> P,
 ) -> Result<String, String> {
     let error_buffer = Arc::new(Mutex::new(Vec::new()));
     let cm: Lrc<SourceMap> = Default::default();
@@ -66,7 +66,7 @@ pub fn transform<P: Pass>(
 
             let program = program
                 .apply(resolver(Mark::new(), Mark::new(), true))
-                .apply(transform_cb(&comments))
+                .apply(transform_cb(&comments, cm.clone()))
                 .apply(hygiene::hygiene())
                 .apply(fixer::fixer(Some(&comments)));
 
@@ -80,6 +80,15 @@ pub fn transform<P: Pass>(
     } else {
         Ok(output.expect("Transform produced no output and no errors"))
     }
+}
+
+#[allow(dead_code)]
+pub fn transform_with_debug_logs<P: Pass>(
+    input: &str,
+    transform_cb: impl FnOnce(&SingleThreadedComments, Lrc<SourceMap>) -> P,
+) -> Result<(String, Vec<String>), String> {
+    let (result, logs) = lingui_macro_plugin::capture_debug_logs(|| transform(input, transform_cb));
+    result.map(|output| (output, logs))
 }
 
 pub fn dedent(s: &str) -> String {
@@ -129,10 +138,11 @@ macro_rules! to {
         #[test]
         fn $name() {
             let source = common::dedent($input);
-            let output = common::transform(source.as_str(), |comments| {
+            let output = common::transform(source.as_str(), |comments, source_map| {
                 swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
                     Default::default(),
                     Some(comments.clone()),
+                    lingui_macro_plugin::DebugSourceMap::from_test(source_map),
                 ))
             })
             .expect("Transform produced unexpected errors");
@@ -149,10 +159,11 @@ macro_rules! to {
             let options: lingui_macro_plugin::LinguiOptions = $options;
             let source = common::dedent($input);
 
-            let output = common::transform(source.as_str(), |comments| {
+            let output = common::transform(source.as_str(), |comments, source_map| {
                 swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
                     options.clone(),
                     Some(comments.clone()),
+                    lingui_macro_plugin::DebugSourceMap::from_test(source_map),
                 ))
             })
             .expect("Transform produced unexpected errors");
@@ -173,10 +184,11 @@ macro_rules! to_panic {
         fn $name() {
             let options: lingui_macro_plugin::LinguiOptions = $options;
             let source = common::dedent($input);
-            let err = common::transform(source.as_str(), |comments| {
+            let err = common::transform(source.as_str(), |comments, source_map| {
                 swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
                     options.clone(),
                     Some(comments.clone()),
+                    lingui_macro_plugin::DebugSourceMap::from_test(source_map),
                 ))
             })
             .expect_err("Expected transform to produce an error, but it succeeded");

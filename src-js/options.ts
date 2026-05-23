@@ -4,6 +4,8 @@ export type RuntimeModuleConfig = readonly [modulePath: string, exportName?: str
 
 /** Options accepted by the `@lingui/swc-plugin` WASM plugin. */
 export type LinguiMacroOptions = {
+  /** Enables debug logging for encountered directives and rewritten macros. */
+  debug?: boolean
   /** JSX attribute name used to provide explicit placeholder names inside `<Trans>` content. */
   jsxPlaceholderAttribute?: string
   /** Default placeholder names for JSX tags when no explicit placeholder attribute is present. */

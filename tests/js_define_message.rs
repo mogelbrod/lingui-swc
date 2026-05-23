@@ -95,3 +95,32 @@ to!(
         })
     "#
 );
+
+#[test]
+fn debug_logs_define_message_and_msg_macros() {
+    let source = common::dedent(
+        r#"
+            import { defineMessage, msg } from '@lingui/macro';
+            const first = defineMessage({ message: "Hello", context: "ctx" })
+            const second = msg`World`
+        "#,
+    );
+
+    let (_output, logs) = common::transform_with_debug_logs(source.as_str(), |comments, source_map| {
+        swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
+            LinguiOptions {
+                debug: true,
+                ..Default::default()
+            },
+            Some(comments.clone()),
+            lingui_macro_plugin::DebugSourceMap::from_test(source_map),
+        ))
+    })
+    .expect("Transform produced unexpected errors");
+
+    assert!(logs[0].starts_with("input.tsx:2: defineMessage id=\""));
+    assert!(logs[0].contains(" context=\"ctx\""));
+    assert!(logs[0].contains(" message=\"Hello\""));
+    assert!(logs[1].starts_with("input.tsx:3: msg id=\""));
+    assert!(logs[1].contains(" message=\"World\""));
+}

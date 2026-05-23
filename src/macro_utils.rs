@@ -1,9 +1,10 @@
 use crate::ast_utils::*;
 use crate::comment_directive::{find_directive_for_pos, DirectiveEntry, DirectiveValues};
+use crate::debug::{DebugLogBuffer, DebugSettings, DebugSourceMap};
 use crate::tokens::*;
 use crate::LinguiOptions;
 use std::collections::{HashMap, HashSet};
-use swc_core::common::BytePos;
+use swc_core::common::{BytePos, Span};
 use swc_core::ecma::utils::quote_ident;
 use swc_core::ecma::{ast::*, atoms::Atom};
 
@@ -25,7 +26,7 @@ pub fn build_prefixed_id(
     Some(format!("{id_prefix}{id}"))
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct MacroCtx {
     // export name -> local name
     symbol_to_id_map: HashMap<Atom, HashSet<Id>>,
@@ -37,6 +38,8 @@ pub struct MacroCtx {
     pub should_add_uselingui_import: bool,
 
     pub options: LinguiOptions,
+    pub source_map: DebugSourceMap,
+    pub debug_log_buffer: DebugLogBuffer,
     pub comment_directives: Vec<DirectiveEntry>,
     pub runtime_idents: RuntimeIdents,
 }
@@ -59,11 +62,35 @@ impl Default for RuntimeIdents {
 }
 
 impl MacroCtx {
-    pub fn new(options: LinguiOptions) -> MacroCtx {
+    pub fn new(options: LinguiOptions, source_map: DebugSourceMap) -> MacroCtx {
         MacroCtx {
+            symbol_to_id_map: HashMap::new(),
+            id_to_symbol_map: HashMap::new(),
+            should_add_18n_import: false,
+            should_add_trans_import: false,
+            should_add_uselingui_import: false,
             options,
-            ..Default::default()
+            source_map,
+            debug_log_buffer: DebugLogBuffer::new(),
+            comment_directives: vec![],
+            runtime_idents: RuntimeIdents::default(),
         }
+    }
+
+    pub fn debug_settings(&self) -> DebugSettings<'_> {
+        DebugSettings {
+            enabled: self.options.debug,
+            source_map: &self.source_map,
+            buffer: &self.debug_log_buffer,
+        }
+    }
+
+    pub fn log_macro(&self, span: Span, name: &str, attrs: Vec<(&'static str, String)>) {
+        self.debug_settings().log(span, name, attrs);
+    }
+
+    pub fn flush_debug_logs(&self) {
+        self.debug_log_buffer.flush();
     }
 
     pub fn set_comment_directives(&mut self, directives: Vec<DirectiveEntry>) {

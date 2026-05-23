@@ -88,6 +88,32 @@ to!(
   "##
 );
 
+#[test]
+fn debug_logs_plural_macro() {
+    let source = common::dedent(
+        r##"
+            import { plural } from '@lingui/core/macro';
+            const message = plural(count, { one: "# book", other: "# books" })
+        "##,
+    );
+
+    let (_output, logs) = common::transform_with_debug_logs(source.as_str(), |comments, source_map| {
+        swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
+            LinguiOptions {
+                debug: true,
+                ..Default::default()
+            },
+            Some(comments.clone()),
+            lingui_macro_plugin::DebugSourceMap::from_test(source_map),
+        ))
+    })
+    .expect("Transform produced unexpected errors");
+
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].starts_with("input.tsx:2: plural id=\""));
+    assert!(logs[0].contains(" message=\"{count, plural, one {# book} other {# books}}\""));
+}
+
 to!(
     js_custom_i18n_passed,
     r#"

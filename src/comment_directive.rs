@@ -1,3 +1,4 @@
+use crate::debug::DebugSettings;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashSet;
@@ -46,6 +47,7 @@ struct ParsedDirective {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RawDirectiveEntry {
     pos: BytePos,
+    span: Span,
     reset: bool,
     values: DirectiveUpdate,
 }
@@ -163,13 +165,22 @@ fn parse_lingui_directive_raw(comment_value: &str) -> Result<Option<ParsedDirect
     Ok(Some(ParsedDirective { reset, values }))
 }
 
+#[cfg(test)]
 pub fn collect_lingui_directives_from_comments(comments: &[Comment]) -> Vec<DirectiveEntry> {
+    collect_lingui_directives_from_comments_with_debug(comments, None)
+}
+
+pub fn collect_lingui_directives_from_comments_with_debug(
+    comments: &[Comment],
+    debug: Option<DebugSettings<'_>>,
+) -> Vec<DirectiveEntry> {
     let mut directives: Vec<RawDirectiveEntry> = comments
         .iter()
         .filter_map(
             |comment| match parse_lingui_directive_raw(comment.text.as_ref()) {
                 Ok(Some(parsed)) => Some(RawDirectiveEntry {
                     pos: comment.span.lo,
+                    span: comment.span,
                     reset: parsed.reset,
                     values: parsed.values,
                 }),
@@ -185,6 +196,20 @@ pub fn collect_lingui_directives_from_comments(comments: &[Comment]) -> Vec<Dire
         .collect();
 
     directives.sort_by_key(|directive| directive.pos);
+
+    if let Some(debug) = debug {
+        for directive in &directives {
+            debug.log(
+                directive.span,
+                if directive.reset {
+                    "lingui-reset"
+                } else {
+                    "lingui-set"
+                },
+                directive_update_to_attrs(&directive.values),
+            );
+        }
+    }
 
     let mut accumulated = DirectiveValues::default();
 
@@ -238,6 +263,7 @@ pub fn find_directive_for_pos(
 pub(crate) fn collect_lingui_directives<C: Comments, N>(
     node: &N,
     comments: &Option<C>,
+    debug: Option<DebugSettings<'_>>,
 ) -> Vec<DirectiveEntry>
 where
     for<'a> N: VisitWith<DirectiveCollector<'a, C>>,
@@ -248,7 +274,32 @@ where
 
     let mut collector = DirectiveCollector::new(comments);
     node.visit_with(&mut collector);
-    collect_lingui_directives_from_comments(&collector.comments)
+    collect_lingui_directives_from_comments_with_debug(&collector.comments, debug)
+}
+
+fn directive_update_to_attrs(values: &DirectiveUpdate) -> Vec<(&'static str, String)> {
+    let mut attrs = Vec::new();
+
+    if let Some(value) = values.context.as_ref() {
+        attrs.push(("context", directive_value_to_string(value)));
+    }
+
+    if let Some(value) = values.comment.as_ref() {
+        attrs.push(("comment", directive_value_to_string(value)));
+    }
+
+    if let Some(value) = values.id_prefix.as_ref() {
+        attrs.push(("idPrefix", directive_value_to_string(value)));
+    }
+
+    attrs
+}
+
+fn directive_value_to_string(value: &DirectiveValueUpdate) -> String {
+    match value {
+        DirectiveValueUpdate::Set(value) => value.clone(),
+        DirectiveValueUpdate::Unset => String::new(),
+    }
 }
 
 pub(crate) struct DirectiveCollector<'a, C>

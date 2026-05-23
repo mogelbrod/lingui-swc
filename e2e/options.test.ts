@@ -110,4 +110,34 @@ describe("linguiMacroSwcPlugin", () => {
       ]
     `)
   })
+
+  it("forwards the debug option", () => {
+    expect(linguiMacroSwcPlugin({debug: true}, {configPath: resolve(fixturesDir, "custom.config.js")})).toMatchInlineSnapshot(`
+      [
+        "@lingui/swc-plugin",
+        {
+          "debug": true,
+          "jsxPlaceholderAttribute": "data-i18n",
+          "jsxPlaceholderDefaults": {
+            "a": "anchor",
+            "strong": "bold",
+          },
+          "runtimeModules": {
+            "Trans": [
+              "@custom/react",
+              "CustomTrans",
+            ],
+            "i18n": [
+              "@custom/core",
+              "customI18n",
+            ],
+            "useLingui": [
+              "@custom/react",
+              "useCustomLingui",
+            ],
+          },
+        },
+      ]
+    `)
+  })
 })

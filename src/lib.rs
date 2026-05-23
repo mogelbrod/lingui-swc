@@ -19,6 +19,7 @@ use swc_core::{
 mod ast_utils;
 mod builder;
 mod comment_directive;
+mod debug;
 mod generate_id;
 mod js_macro_folder;
 mod jsx_visitor;
@@ -65,10 +66,14 @@ impl<C> LinguiMacroFolder<C>
 where
     C: Comments + Clone,
 {
-    pub fn new(options: LinguiOptions, comments: Option<C>) -> LinguiMacroFolder<C> {
+    pub fn new(
+        options: LinguiOptions,
+        comments: Option<C>,
+        source_map: DebugSourceMap,
+    ) -> LinguiMacroFolder<C> {
         LinguiMacroFolder {
             has_lingui_macro_imports: false,
-            ctx: MacroCtx::new(options),
+            ctx: MacroCtx::new(options, source_map),
             comments,
         }
     }
@@ -76,6 +81,26 @@ where
     // <Trans>Message</Trans>
     // <Plural />
     fn transform_jsx_macro(&mut self, el: JSXElement, is_trans_el: bool) -> JSXElement {
+        let log_name = match &el.opening.name {
+            JSXElementName::Ident(ident) => self
+                .ctx
+                .get_ident_export_name(ident)
+                .map(|name| name.as_ref().to_string())
+                .unwrap_or_else(|| {
+                    if is_trans_el {
+                        "Trans".to_string()
+                    } else {
+                        "Plural".to_string()
+                    }
+                }),
+            _ => {
+                if is_trans_el {
+                    "Trans".to_string()
+                } else {
+                    "Plural".to_string()
+                }
+            }
+        };
         let mut trans_visitor = TransJSXVisitor::new(&self.ctx);
 
         let message_dscrptr_span: Span;
@@ -189,6 +214,12 @@ where
                 ));
             }
         }
+
+        self.ctx.log_macro(
+            message_dscrptr_span,
+            &log_name,
+            collect_debug_attrs_from_props(&message_descriptor_props),
+        );
 
         let message_descriptor = Expr::Object(ObjectLit {
             span: message_dscrptr_span,
@@ -403,9 +434,14 @@ where
         }
 
         self.ctx
-            .set_comment_directives(collect_lingui_directives(&n, &self.comments));
+            .set_comment_directives(collect_lingui_directives(
+                &n,
+                &self.comments,
+                Some(self.ctx.debug_settings()),
+            ));
 
         n = n.fold_children_with(self);
+        self.ctx.flush_debug_logs();
 
         if self.ctx.should_add_18n_import {
             n.insert(
@@ -535,7 +571,22 @@ where
     }
 }
 
+pub use self::debug::{capture_debug_logs, DebugSourceMap};
 pub use self::options::{DescriptorFields, LinguiOptions, RuntimeModulesConfigMapNormalized};
+
+fn collect_debug_attrs_from_props(props: &[PropOrSpread]) -> Vec<(&'static str, String)> {
+    let mut attrs = Vec::new();
+
+    for key in ["id", "context", "comment", "message"] {
+        if let Some(prop) = get_object_prop(props, key) {
+            if let Some(value) = get_expr_as_string(&prop.value) {
+                attrs.push((key, value));
+            }
+        }
+    }
+
+    attrs
+}
 
 #[plugin_transform]
 pub fn process_transform(program: Program, metadata: TransformPluginProgramMetadata) -> Program {
@@ -552,5 +603,9 @@ pub fn process_transform(program: Program, metadata: TransformPluginProgramMetad
             .unwrap_or_default(),
     );
 
-    program.fold_with(&mut LinguiMacroFolder::new(config, metadata.comments))
+    program.fold_with(&mut LinguiMacroFolder::new(
+        config,
+        metadata.comments,
+        DebugSourceMap::from_plugin(metadata.source_map),
+    ))
 }

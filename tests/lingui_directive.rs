@@ -279,6 +279,41 @@ to!(
      "#
 );
 
+#[test]
+fn debug_logs_directives_and_t_macros() {
+    let source = common::dedent(
+        r#"
+            import { t } from '@lingui/core/macro';
+            /* lingui-set context="sandbox" comment="/dev/sandbox route" */
+            const first = t`Hello world`
+            /* lingui-reset context="new" */
+            const second = t`Translation`
+        "#,
+    );
+
+    let (_output, logs) = common::transform_with_debug_logs(source.as_str(), |comments, source_map| {
+        swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
+            LinguiOptions {
+                debug: true,
+                ..Default::default()
+            },
+            Some(comments.clone()),
+            lingui_macro_plugin::DebugSourceMap::from_test(source_map),
+        ))
+    })
+    .expect("Transform produced unexpected errors");
+
+    assert_eq!(logs[0], "input.tsx:2: lingui-set context=\"sandbox\" comment=\"/dev/sandbox route\"");
+    assert!(logs[1].starts_with("input.tsx:3: t id=\""));
+    assert!(logs[1].contains(" context=\"sandbox\""));
+    assert!(logs[1].contains(" comment=\"/dev/sandbox route\""));
+    assert!(logs[1].contains(" message=\"Hello world\""));
+    assert_eq!(logs[2], "input.tsx:4: lingui-reset context=\"new\"");
+    assert!(logs[3].starts_with("input.tsx:5: t id=\""));
+    assert!(logs[3].contains(" context=\"new\""));
+    assert!(logs[3].contains(" message=\"Translation\""));
+}
+
 to!(
     jsx_trans_with_dynamic_id_and_no_id_prefix,
     r#"

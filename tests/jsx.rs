@@ -144,6 +144,34 @@ to!(
      "#
 );
 
+  #[test]
+  fn debug_logs_trans_macro() {
+    let source = common::dedent(
+      r#"
+        import { Trans } from '@lingui/react/macro';
+        const view = <Trans context="sandbox" comment="route">Hello world</Trans>;
+      "#,
+    );
+
+    let (_output, logs) = common::transform_with_debug_logs(source.as_str(), |comments, source_map| {
+      swc_core::ecma::visit::fold_pass(lingui_macro_plugin::LinguiMacroFolder::new(
+        LinguiOptions {
+          debug: true,
+          ..Default::default()
+        },
+        Some(comments.clone()),
+        lingui_macro_plugin::DebugSourceMap::from_test(source_map),
+      ))
+    })
+    .expect("Transform produced unexpected errors");
+
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].starts_with("input.tsx:2: Trans id=\""));
+    assert!(logs[0].contains(" context=\"sandbox\""));
+    assert!(logs[0].contains(" comment=\"route\""));
+    assert!(logs[0].contains(" message=\"Hello world\""));
+  }
+
 to!(
     jsx_nested_labels,
     r#"

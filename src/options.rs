@@ -36,6 +36,8 @@ pub struct LinguiJsOptions {
     #[serde(default)]
     descriptor_fields: Option<DescriptorFields>,
     #[serde(default)]
+    debug: Option<bool>,
+    #[serde(default)]
     use_lingui_v5_id_generation: Option<bool>,
     #[serde(default)]
     id_prefix_leader: Option<String>,
@@ -89,6 +91,7 @@ impl LinguiJsOptions {
 
         LinguiOptions {
             descriptor_fields,
+            debug: self.debug.unwrap_or(false),
             use_lingui_v5_id_generation: self.use_lingui_v5_id_generation.unwrap_or(false),
             id_prefix_leader: self.id_prefix_leader.clone(),
             jsx_placeholder_attribute: self.jsx_placeholder_attribute.clone(),
@@ -140,6 +143,8 @@ pub struct LinguiOptions {
     #[serde(skip_serializing_if = "is_default")]
     pub descriptor_fields: DescriptorFields,
     #[serde(skip_serializing_if = "is_default")]
+    pub debug: bool,
+    #[serde(skip_serializing_if = "is_default")]
     pub id_prefix_leader: Option<String>,
     #[serde(skip_serializing_if = "is_default")]
     pub jsx_placeholder_attribute: Option<String>,
@@ -155,6 +160,7 @@ impl Default for LinguiOptions {
     fn default() -> LinguiOptions {
         LinguiOptions {
             descriptor_fields: DescriptorFields::All,
+            debug: false,
             use_lingui_v5_id_generation: false,
             id_prefix_leader: None,
             jsx_placeholder_attribute: None,
@@ -199,6 +205,7 @@ mod lib_tests {
                     )),
                 }),
                 descriptor_fields: None,
+                debug: None,
                 use_lingui_v5_id_generation: None,
                 id_prefix_leader: None,
                 jsx_placeholder_attribute: None,
@@ -230,6 +237,7 @@ mod lib_tests {
                     use_lingui: None,
                 }),
                 descriptor_fields: None,
+                debug: None,
                 use_lingui_v5_id_generation: None,
                 id_prefix_leader: None,
                 jsx_placeholder_attribute: None,
@@ -258,6 +266,7 @@ mod lib_tests {
                     use_lingui: None,
                 }),
                 descriptor_fields: None,
+                debug: None,
                 use_lingui_v5_id_generation: None,
                 id_prefix_leader: None,
                 jsx_placeholder_attribute: None,
@@ -320,6 +329,20 @@ mod lib_tests {
             options.descriptor_fields,
             DescriptorFields::Message
         ));
+    }
+
+    #[test]
+    fn test_debug_config() {
+        let config = serde_json::from_str::<LinguiJsOptions>(
+            r#"{
+                "debug": true,
+                "runtimeModules": {}
+               }"#,
+        )
+        .unwrap();
+
+        let options = config.into_options("development");
+        assert!(options.debug);
     }
 
     #[test]

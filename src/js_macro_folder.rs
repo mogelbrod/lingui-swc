@@ -36,6 +36,7 @@ where
         tokens: Vec<MsgToken>,
         span: Span,
         defaults: Option<&DirectiveValues>,
+        log_name: Option<String>,
     ) -> Expr {
         let parsed = MessageBuilder::parse(tokens, &self.ctx.options);
 
@@ -73,6 +74,11 @@ where
             }
         }
 
+        if let Some(log_name) = log_name {
+            self.ctx
+            .log_macro(span, &log_name, collect_debug_attrs_from_props(&props));
+        }
+
         let message_descriptor = Expr::Object(ObjectLit { span, props });
 
         add_i18n_comment(self.comments, span);
@@ -86,12 +92,14 @@ where
         tokens: Vec<MsgToken>,
         msg_dscrptr_span: Span,
         call_expr_span: Span,
+        log_name: Option<String>,
     ) -> CallExpr {
         let defaults = self.ctx.get_comment_directive(msg_dscrptr_span.lo).cloned();
         let message_descriptor = Box::new(self.create_message_descriptor_from_tokens(
             tokens,
             msg_dscrptr_span,
             defaults.as_ref(),
+            log_name,
         ));
 
         self.create_i18n_fn_call(
@@ -126,7 +134,12 @@ where
     }
 
     // take {message: "", id: "", ...} object literal, process message and return updated props
-    fn update_msg_descriptor_props(&self, expr: Box<Expr>, span: Span) -> Box<Expr> {
+    fn update_msg_descriptor_props(
+        &self,
+        expr: Box<Expr>,
+        span: Span,
+        log_name: Option<String>,
+    ) -> Box<Expr> {
         if let Expr::Object(obj) = *expr {
             let defaults = self.ctx.get_comment_directive(span.lo);
             let id_prop = get_object_prop(&obj.props, "id");
@@ -207,6 +220,11 @@ where
                 }
             }
 
+            if let Some(log_name) = log_name {
+                self.ctx
+                    .log_macro(span, &log_name, collect_debug_attrs_from_props(&new_props));
+            }
+
             let message_descriptor = Box::new(Expr::Object(ObjectLit {
                 span,
                 props: new_props,
@@ -236,6 +254,7 @@ where
                     self.ctx.tokenize_tpl(&tagged_tpl.tpl),
                     tagged_tpl.tpl.span(),
                     expr.span(),
+                    Some("t".to_string()),
                 ));
             }
         }
@@ -247,10 +266,16 @@ where
                 if self.ctx.is_define_message_ident(ident) {
                     let tokens = self.ctx.tokenize_tpl(&tagged_tpl.tpl);
                     let defaults = self.ctx.get_comment_directive(span.lo).cloned();
+                    let log_name = self
+                        .ctx
+                        .get_ident_export_name(ident)
+                        .map(|name| name.as_ref().to_string())
+                        .unwrap_or_else(|| "defineMessage".to_string());
                     return self.create_message_descriptor_from_tokens(
                         tokens,
                         span,
                         defaults.as_ref(),
+                        Some(log_name),
                     );
                 }
             }
@@ -258,15 +283,20 @@ where
 
         // defineMessage({message: "Message"})
         if let Expr::Call(call) = &expr {
-            if match_callee_name(call, |n| self.ctx.is_define_message_ident(n)).is_some()
-                && call.args.len() == 1
-            {
+            if call.args.len() == 1 {
+                if let Some(ident) =
+                    match_callee_name(call, |n| self.ctx.is_define_message_ident(n))
+                {
                 let descriptor = self.update_msg_descriptor_props(
                     call.args.clone().into_iter().next().unwrap().expr,
                     call.span(),
+                    self.ctx
+                        .get_ident_export_name(ident)
+                        .map(|name| name.as_ref().to_string()),
                 );
 
                 return *descriptor;
+                }
             }
         }
 
@@ -283,8 +313,11 @@ where
                 let msg_dscrpt_expr = expr.args.into_iter().next().unwrap().expr;
 
                 let msg_dscrpt_expr_span = msg_dscrpt_expr.span();
-                let descriptor =
-                    self.update_msg_descriptor_props(msg_dscrpt_expr, msg_dscrpt_expr_span);
+                let descriptor = self.update_msg_descriptor_props(
+                    msg_dscrpt_expr,
+                    msg_dscrpt_expr_span,
+                    Some("t".to_string()),
+                );
 
                 return self.create_i18n_fn_call(callee, vec![descriptor.as_arg()], span);
             }
@@ -293,15 +326,37 @@ where
         // plural / selectOrdinal / select
         if let Some(tokens) = self.ctx.try_tokenize_call_expr_as_choice_cmp(&expr) {
             let msg_dscrptr_span = expr.args.first().map(|arg| arg.span()).unwrap_or(DUMMY_SP);
+            let log_name = match_callee_name(&expr, |name| {
+                self.ctx.is_lingui_ident("plural", name)
+                    || self.ctx.is_lingui_ident("select", name)
+                    || self.ctx.is_lingui_ident("selectOrdinal", name)
+            })
+            .and_then(|ident| self.ctx.get_ident_export_name(ident))
+            .map(|name| name.as_ref().to_string());
 
             return self.create_i18n_fn_call_from_tokens(
                 None,
                 tokens,
                 msg_dscrptr_span,
                 expr.span(),
+                log_name,
             );
         }
 
         expr.fold_children_with(self)
     }
+}
+
+fn collect_debug_attrs_from_props(props: &[PropOrSpread]) -> Vec<(&'static str, String)> {
+    let mut attrs = Vec::new();
+
+    for key in ["id", "context", "comment", "message"] {
+        if let Some(prop) = get_object_prop(props, key) {
+            if let Some(value) = get_expr_as_string(&prop.value) {
+                attrs.push((key, value));
+            }
+        }
+    }
+
+    attrs
 }
